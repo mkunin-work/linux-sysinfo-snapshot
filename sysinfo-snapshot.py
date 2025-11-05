@@ -3836,12 +3836,12 @@ def add_external_file_if_exists(field_name, curr_path):
                 err_command += "cat " + curr_path
     elif (field_name == "ps -eLo"):
         if is_command_allowed("ps -eLo"):
-            status, command_output = get_status_output("ps -eLo lstart,%cpu,psr,nlwp,f,uid,pid,ppid,pri,rtprio,ni,vsz,rss,stat,tty,time,wchan,args")
+            status, command_output = get_status_output("ps -eLo lstart,%cpu,psr,nlwp,f,tid,uid,pid,ppid,pri,rtprio,ni,vsz,rss,stat,tty,time,wchan,comm,args")
             if (status == 0):
                 add_ext_file_handler(field_name, field_name, command_output)
             else:
                 err_flag = 1
-                err_command += "ps -eLo lstart,%cpu,psr,nlwp,f,uid,pid,ppid,pri,rtprio,ni,vsz,rss,stat,tty,time,wchan,args"
+                err_command += "ps -eLo lstart,%cpu,psr,nlwp,f,tid,uid,pid,ppid,pri,rtprio,ni,vsz,rss,stat,tty,time,wchan,comm,args"
     elif (field_name == "chkconfig"):
         command = ""
         st,res = get_status_output('pidof systemd && echo "systemd" || echo "other"')
