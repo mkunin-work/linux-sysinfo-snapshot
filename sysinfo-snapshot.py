@@ -1792,7 +1792,6 @@ def _handle_tools_cmd(command, card, timeout = '80'):
     # Second index of each list will be the MSTFLINT command
     # Invoke MFT command if installed, otherwise invoke MSTFLINT command
     # Return 0 --> Command succeeded, 1 --> Failed
-    
     commands_dict['fwdump'] = ["mstdump " + card, "mstregdump " + card]
     commands_dict['fwconfig'] = ["mlxconfig -d " + card + " -e  q", "mstconfig -d " + card + " -e  q"]
     commands_dict['fwflint'] = ["flint -d " + card, "mstflint -d " + card]
@@ -2088,9 +2087,12 @@ def process_card_worker(args):
     card, temp, mst_status_output, is_MFT_installed, is_MST_installed, vf_pf_devices = args
     device = "%s.0" % card
     local_output = []
-    
+
     if is_MFT_installed:
-        if device not in mst_status_output:
+        # Remove first segment (before first colon) from device for comparison (e.g., '0000:c1:00.0' -> 'c1:00.0')
+        device_parts = device.split(':', 1)
+        device_for_check = device_parts[1] if len(device_parts) > 1 else device
+        if device_for_check not in mst_status_output:
             return local_output
     elif is_MST_installed:
         if device in vf_pf_devices:
