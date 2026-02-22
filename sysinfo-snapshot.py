@@ -120,7 +120,7 @@ class LooseVersion:
 ######################################################################################################
 #                                     GLOBAL GENERAL VARIABLES
 
-version = "3.7.9.7"
+version = "3.7.9.8"
 sys_argv = sys.argv
 len_argv = len(sys.argv)
 driver_required_loading = False
