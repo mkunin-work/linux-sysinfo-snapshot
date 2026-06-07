@@ -120,7 +120,7 @@ class LooseVersion:
 ######################################################################################################
 #                                     GLOBAL GENERAL VARIABLES
 
-version = "3.7.9.9"
+version = "3.8.0.0"
 sys_argv = sys.argv
 len_argv = len(sys.argv)
 driver_required_loading = False
@@ -1668,6 +1668,12 @@ def _is_amber_collect_supported(device):
     return is_amber_collect_supported
 
 #**********************************************************
+#        Strip ANSI SGR color escape sequences (e.g. ESC[31m, ESC[0m) that
+#        mlxlink/mstlink emit, so saved/collected output stays plain text.
+def strip_ansi_colors(text):
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+#**********************************************************
 #        Helper for mstcommand_d_handler - handles commands with given number of runs
 def command_with_number_of_runs(number_of_runs, device, command, suffix, pcie_debug, pci_device=False):
     no_log_status_output("mkdir " + path + file_name + "/amber_info")
@@ -1686,6 +1692,11 @@ def command_with_number_of_runs(number_of_runs, device, command, suffix, pcie_de
         else:
             suffix_list.append(suffix)
         for suff in suffix_list:
+            # For the PCIe -c -e suffix, run -c -e per valid PCIe link
+            # (--depth/--pcie_index/--node) via --show_link instead of the plain -c -e run.
+            if "--port_type PCIE -c -e" in suff:
+                command_result += run_show_link(device)
+                continue
             command_result += "\n#" + str(i+1) + " " + command + " -d " + device + suff + "\n\n"
             mlxlink_command = "mlxlink -d " + device + suff
             mlx_st, command_result_device = get_status_output(command + " -d " + device + suff, "30")
@@ -1693,12 +1704,62 @@ def command_with_number_of_runs(number_of_runs, device, command, suffix, pcie_de
                 output = command + "_" + device + "_run_" + str(i + 1)
                 filtered_file_name = output.replace(":", "").replace(".", "")
                 save_mlxlink_output_to_file(filtered_file_name,command_result_device)
-            command_result_device = command_result_device.replace("[31m","").replace("[32m","").replace("[33m","").replace("[0m","")
+            command_result_device = strip_ansi_colors(command_result_device)
             if (mlx_st != 0):
                 command_result_device = "Errors detected while running: " + command + " -d " + device + suffix + '"\n' + command_result_device
                 command_result += command_result_device
                 break
             command_result += command_result_device
+    return command_result
+
+#**********************************************************
+#        show_link per-link handler (mlxlink / mstlink --show_link)
+def parse_valid_pcie_links(show_link_output):
+    # Parse the "Valid PCIe Links" table emitted by <tool> --port_type PCIE --show_link.
+    # Each data row looks like:
+    #   Link 1   : 0     ,0          ,0    ,0    ,0018:01:00.0 ,UP
+    # i.e. depth, pcie_index, node, port, bdf, link_status (comma separated).
+    links = []
+    for line in show_link_output.splitlines():
+        link_match = re.match(r"\s*Link\s+\d+\s*:\s*(.+)", line)
+        if not link_match:
+            continue
+        fields = [field.strip() for field in link_match.group(1).split(",")]
+        if len(fields) < 6:
+            continue
+        links.append({"depth": fields[0], "pcie_index": fields[1], "node": fields[2],
+                      "port": fields[3], "bdf": fields[4], "link_status": fields[5]})
+    return links
+
+def run_show_link(device):
+    # Enumerate the device's valid PCIe links via --show_link, then run
+    # "-c -e --depth <d> --pcie_index <pi> --node <n>" for every link.
+    # Binary follows MFT/MST availability: mlxlink when MFT is installed, else mstlink.
+    tool = "mlxlink" if is_MFT_installed else "mstlink"
+    command_result = ""
+    show_link_cmd = "%s -d %s --port_type PCIE --show_link" % (tool, device)
+    command_result += "\n# %s\n\n" % show_link_cmd
+    st, show_link_output = get_status_output(show_link_cmd, "30")
+    show_link_output = strip_ansi_colors(show_link_output)
+    command_result += show_link_output + "\n"
+    if st != 0:
+        command_result += "Errors detected while running: %s\n" % show_link_cmd
+        return command_result
+    links = parse_valid_pcie_links(show_link_output)
+    if not links:
+        command_result += "No valid PCIe links found for %s\n" % device
+        return command_result
+    for link in links:
+        suffix = " --port_type PCIE -c -e --depth %s --pcie_index %s --node %s" % (
+            link["depth"], link["pcie_index"], link["node"])
+        per_link_cmd = "%s -d %s%s" % (tool, device, suffix)
+        command_result += "\n# %s  (port %s, bdf %s, %s)\n\n" % (
+            per_link_cmd, link["port"], link["bdf"], link["link_status"])
+        link_st, per_link_output = get_status_output(per_link_cmd, "30")
+        per_link_output = strip_ansi_colors(per_link_output)
+        if link_st != 0:
+            per_link_output = "Errors detected while running: %s\n%s" % (per_link_cmd, per_link_output)
+        command_result += per_link_output + "\n"
     return command_result
 
 #**********************************************************
